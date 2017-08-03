@@ -33,12 +33,12 @@
 Cepsilon = 0.00000001;
 
 // The golden mean 
-Cphi = 1.61803399;
+Cphi = (1 + sqrt(5)) / 2;
 
 // PI
-Cpi = 3.14159;
-Chalfpi = Cpi/2;
-Ctau = Cpi*2;
+Cpi = PI;
+Chalfpi = PI/2;
+Ctau = PI*2;
 
 //=======================================
 //
@@ -86,9 +86,12 @@ function VMULT(v1, v2) = [v1[0]*v2[0], v1[1]*v2[1], v1[2]*v2[2]];
 
 // Magnitude of a vector
 // Gives the Euclidean norm
-function VLENSQR(v) = (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
-function VLEN(v) = sqrt(VLENSQR(v));
-function VMAG(v) = sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+
+function vecsum(vec, idx=0, sum=0) = idx == len(vec) ? sum : vecsum(vec, idx+1, sum + vec[idx]); 
+
+function VLENSQR(v) = vecsum([for(e=v) e*e]);
+function VLEN(v) = norm(v);
+function VMAG(v) = norm(v);
 
 
 // Returns the unit vector associated with a vector
@@ -98,7 +101,7 @@ function VNORM(v) = v/VMAG(v);
 // The scalar, or 'dot' product
 // law of cosines
 // if VDOT(v1,v2) == 0, they are perpendicular
-function SPROD(v1,v2) = v1[0]*v2[0]+v1[1]*v2[1]+v1[2]*v2[2];
+function SPROD(v1,v2) = v1*v2;
 function VDOT(v1v2) = SPROD(v1v2[0], v1v2[1]);
 
 // The vector, or Cross product
@@ -328,6 +331,9 @@ function quat(axis, angle) = _quat(
 	s=sin(angle/2), 
 	c=cos(angle/2));
 
+// quatern ion to align v1 to v2
+function quat_v2(v1,v2) = quat(cross(v1,v2), acos(v1*v2));
+
 // Basic quaternion functions
 function quat_add(q1, q2) = [q1[0]+q2[0], q1[1]+q2[1], q1[2]+q2[2], q1[3]+q2[3]];
 
@@ -351,7 +357,7 @@ function quat_mults(q1, s) = [q1[0]*s, q1[1]*s,q1[2]*s,q1[3]*s];
 
 function quat_divs(q1, s) = [q1[0]/s, q1[1]/s,q1[2]/s,q1[3]/s];
 
-function quat_neg(q1) = [-q1[0], -q1[1],-q1[2],-q1[3]];
+function quat_neg(q1) = [-q1[0],-q1[1],-q1[2],-q1[3]];
 
 function quat_dot(q1, q2) = q1[0]*q2[0]+q1[1]*q2[1]+q1[2]*q2[2]+ q1[3]*q2[3];
 
@@ -675,3 +681,15 @@ function GetHermSweepQuad(cpsu, cpsv, uv1, uv2) = [
 	herp(cpsu, uv2[0])+herp(cpsv, uv2[1]),
 	herp(cpsu, uv1[0])+herp(cpsv, uv2[1])
 	];
+
+
+// intersection of two lines in point+direction format
+// solve p1 + a*v1 = p2+b*v2
+
+function v3pad(v) = [len(v>0) ? v[0] : 0, len(v>1) ? v[1] : 0, len(v>2) ? v[2] : 0];
+// point-vector
+function line_intersection_pv(p1,v1,p2,v2) = let (c1=cross(p2-p1, v2), c2=cross(v1,v2), a=norm(c1) / norm(c2) * sign(c1*c2)) p1 + v1 * a;
+// 2 points
+function line_intersection_pp(p1,p2,q1,q2) = line_intersection_pv(p1, p2-p1, q1, q2-q1);
+
+function slice(vec, idx) = [ for(i=idx) vec[i] ];
