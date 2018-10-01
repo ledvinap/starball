@@ -62,11 +62,15 @@ function vec2_from_vec3(pt) = [pt[0], pt[1]];
 //
 //=======================================
 
+function max(a,b) = (a < b) ? b : a;
+function min(a,b) = (a < b) ? a : b;
+
 // Basic vector routines
 function vec2_add(v1, v2) =  [v1[0]+v2[0], v1[1]+v2[1]];
 function vec3_add(v1, v2) =  [v1[0]+v2[0], v1[1]+v2[1], v1[2]+v2[2]];
 function vec4_add(v1, v2) = [v1[0]+v2[0], v1[1]+v2[1], v1[2]+v2[2], v1[3]+v2[3]];
 
+function vec_add(v1,v2) = [for (i = [0 : max(len(v1), len(v2)) - 1]) (i < len(v1) ? v1[i] : 0) + (i < len(v2) ? v2[i] : 0)];
 
 function vec2_mults(v, s) =  [v[0]*s, v[1]*s];
 function vec3_mults(v, s) =  [v[0]*s, v[1]*s, v[2]*s];
@@ -284,12 +288,6 @@ function transform_rotx(angle) = [
 	[0, 0, 0, 1]
 	];
 
-function  transform_rotz(deg) = [
-	[cos(deg), -sin(deg), 0, 0],
-	[sin(deg), cos(deg), 0, 0],
-	[0, 0, 1, 0],
-	[0, 0, 0, 1]
-	];
 
 function  transform_roty(deg) = [
 	[cos(deg), 0, sin(deg), 0],
@@ -298,6 +296,12 @@ function  transform_roty(deg) = [
 	[0, 0, 0, 1]
 	];
 
+function  transform_rotz(deg) = [
+	[cos(deg), -sin(deg), 0, 0],
+	[sin(deg), cos(deg), 0, 0],
+	[0, 0, 1, 0],
+	[0, 0, 0, 1]
+	];
 
 
 //=======================================
@@ -693,3 +697,13 @@ function line_intersection_pv(p1,v1,p2,v2) = let (c1=cross(p2-p1, v2), c2=cross(
 function line_intersection_pp(p1,p2,q1,q2) = line_intersection_pv(p1, p2-p1, q1, q2-q1);
 
 function slice(vec, idx) = [ for(i=idx) vec[i] ];
+
+
+// vector of vec3 + vec
+function vvec_plus(v,a) = [for (vi=v) vec_add(vi, a)];
+
+// positive modulo (for circular vecrtor indexing)
+function modp(a,n) = (a+n) % n;
+
+// convert range to list
+function listr(r) = [for(i = r) i];

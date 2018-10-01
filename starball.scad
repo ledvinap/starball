@@ -5,14 +5,41 @@
 
 use <maths.scad>
 
-layer_h = .4;
-extrusion_width = layer_h*1.5;
+//layer_h = .4;
+//extrusion_width = layer_h*1.5;
+layer_h = .2;
+extrusion_width = .45;
 eta = 0.001;
 
-use_lock = true;
+/*
+    // ball radius
+radius = 50;
+hex_h = 12;
+star_h = 8.2;
+star_inset_radius = 1.5;             // radius delta for star inset
+lock_max = 13.7;                    // lock base distance from star tip
+lock_min  = 5.9;                    // lock tip distance from star tip
+*/
+radius = 40;
+hex_h = 9.3;
+star_h = 6.3;
+star_inset_radius = .7;           // radius delta for star inset
+lock_max = 12;                    // lock base distance from star tip
+lock_min  = 4;                    // lock tip distance from star tip
 
-swhex  = 1;     // for dual color printing
-swpent = 1;
+// hexagonal piece
+magnet_dia=5+.5;
+magnet_h = 2.1;
+// star piece
+star_wall = 2*extrusion_width;       // thickness of lock wall on star
+lock_clearance= .2;                  // clearance subtracted from hexagon lock
+//star_inset_lock = extrusion_width/2; // amount of star expansion to lock it in place
+star_inset_lock = .3;
+    
+// generate locks connecting star ray and hexagon
+use_lock = true;
+use_pet = true;    // allow for PET sag on bridge
+mag_cover_thickness = extrusion_width * 2;
 
 // Cartesian coordinates (from wikipedia):
 //  Cartesian coordinates for the vertices of a 
@@ -25,10 +52,6 @@ swpent = 1;
 //  Radius squared equal to 9ϕ + 10
 //  (radius ~= 4.956037)
 //  The edges have length 2.
-//
-//  rotate 20.90516 (around y axis) degree afterwards to 
-//  fit hexagon on
-//  x-y plane.
 
 phi = (1 + sqrt(5)) / 2;
 
@@ -47,11 +70,13 @@ oh1 = negy(oh6);
 
 oh = [oh1,oh2,oh3,oh4,oh5,oh6];
 
+function interp(a,b, rat) = a * (1 - rat) + b * rat;
+
 // calculate pentagon intersection point
 rat = 3/2 - sqrt(5)/2;   // ratio of petagon side to intersection distance
-function penti(a,b) = a * (1-rat) + b*rat;
+function penti(a,b) = interp(a,b,rat);
 
-// 12x star (points)
+// star (points)
 ddp1 = perm((oh1+oh6)/2);
 ddp2 = perm((oh5+oh4)/2);
 ddp3 = (oh4+oh5)/2;
@@ -65,7 +90,7 @@ ip3 = penti(ddp3, ddp5);
 ip4 = penti(ddp4, ddp1);
 ip5 = penti(ddp5, ddp2);
 
-// 12 x hex ddh around +/- z axis (0 <= x, ccw)
+// 12 x hex ddh1 around +/- z axis (0 <= x, ccw)
 ddh6 = perm2(ip1);
 ddh5 = ddp3;
 ddh4 = ip3;
@@ -89,8 +114,6 @@ function negz(vec) = [ vec[0],  vec[1], -vec[2]];
 function perm(vec) = [ vec[2], vec[0], vec[1]];
 function perm2(vec) = perm(perm(vec));
 
-radius = 50;
-
 //align hex1 to Z axis
 hex1_center = (ddh1+ddh2+ddh3+ddh4+ddh5+ddh6)/6;
 align_hex1 = quat([0,1,0], -atan2(hex1_center[0], hex1_center[2]));
@@ -100,6 +123,7 @@ align_hex1 = quat([0,1,0], -atan2(hex1_center[0], hex1_center[2]));
 hex2_center = (och1+och2+och3+och4+och5+och6)/6;
 align_hex2 = quat_mult(align_hex1, quat((hex1_center+hex2_center)/2, 180));
 
+// align star to Z axis
 star_center=(ddp1+ddp2+ddp3+ddp4+ddp5)/5;
 align_star = quat([0,1,0], -atan2(star_center[0], star_center[2]));
 
@@ -107,24 +131,84 @@ align_star = quat([0,1,0], -atan2(star_center[0], star_center[2]));
 function ql_rot1d(ql, axis, angle=180) = concat(ql, [for (q = ql) quat_mult(q, quat(axis, angle))]);
 // rotate twice 90 deg (to align along different axis)
 function ql_rot2(ql, a1, a2, angle=90) = [for (q = ql) quat_mult(q, quat_mult(quat(a1, angle), quat(a2, angle)))];
-
+// generate 12 positions for stars and hex (2 per pos/neg axis)
 function rot12(ql) = let(x_sym = ql_rot1d(ql_rot1d(ql, [0,1,0]),[0,0,1])) concat(x_sym, ql_rot2(x_sym, [1,0,0], [0,0,1]), ql_rot2(x_sym, [1,0,0], [0,1,0]));
-// use 'mirror' rotation + 180 degree symetry
+// generate 8 diagonal positions for hex
+// use 180 degree symetry + 'mirror' rotation
 function ql_mirror(ql) = [for (q = ql) [q[0],-q[1],q[2],-q[3]]];
 function rot8(ql) = ql_rot1d(ql_rot1d(concat(ql, ql_mirror(ql)), [1,0,0]), [0,0,1]);
 
-align_p = rot12([align_star]);
-align_h = concat(rot12([align_hex1]),rot8([align_hex2])); 
+// rotate stars to have tip0 crossing split plane (star 0 has tip0 in bottom half-sphere)
+// rotation in 360/5
+//       0  1  2  3  4  5  6  7  8  9 10 11
+rot_p = [0, 0, 0, 0, 1, 4, 4, 1, 0, 0, 0, 0];
+// rotate hex to have tip0 on equator
+// rotations in 360/3
+//       0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+rot_h = [0, 0, 0, 0, 2, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+// stars with solid tip
+//       0  1  2  3  4  5  6  7  8  9 10 11
+tip_p = [1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0];
 
-module align(q, rev = false) {
-  multmatrix(quat_to_mat4(rev ? quat_conj(q) : q)) children();
+// position of hexagon magnets
+//       0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+mag_h = [0, 0, 0, 0, 1, 2, 2, 1, 1, 2, 1, 2, 2, 1, 0, 0, 0, 0, 2, 1];
+
+// hemisphere
+//        0  1  2  3  4  5  6  7  8  9 10 11
+hemi_p = [0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0];
+//        0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+hemi_h = [0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1];
+// premultiply list of quaternions
+function rotqlist_l(ql, rl, angle=1) = [for (i = [0:len(ql)-1]) i >= len(rl) ? ql[i] : quat_mult(quat([0,0,1], rl[i]*angle), ql[i])];
+
+align_p = rotqlist_l(rot12([align_star]), rot_p, 360/5);
+align_h = rotqlist_l(concat(rot12([align_hex1]),rot8([align_hex2])), rot_h, 360/3); 
+
+// use quaternion to aligh children to Z axis
+module align(q, reverse = false) {
+  multmatrix(quat_to_mat4(reverse ? quat_conj(q) : q)) children();
 }
 
-// vec4_mult_mat34 is opposite to multmatrix
-function align_vec(v, q, rev=false) = vec4_mult_mat34(point3_from_vec3(v), quat_to_mat4(rev ? q : quat_conj(q)));
+// same as align(), but process point instead of geometry
+// (vec4_mult_mat34 is opposite to multmatrix)
+function align_vec(v, q, reverse=false) = vec4_mult_mat34(point3_from_vec3(v), quat_to_mat4(reverse ? q : quat_conj(q)));
 
-// render element numbers + first point
+function ceil_to_layer(h) = ceil(h / layer_h) * layer_h;
+
+module square_c(size = [1, 1], center = false)
+{
+    if (len(center) == undef) {
+	square(size, center);
+    } else {
+	if (len(size) != 2 || len(center) != 2) {
+	    echo("Invalid square parameters", size, center);
+	    #square();
+	} else {
+	    offset = [size[0] * center[0] / 2, size[1] * center[1] / 2];
+	    translate(offset) square(size, true);
+	}
+    }
+}
+
+module cube_c(size = [1, 1, 1], center = false)
+{
+    if (len(center) == undef) {
+        cube(size, center);
+    } else {
+        if (len(size) != 3 || len(center) != 3) {
+            echo("Invalid cube parameters", size, center);
+            square();
+        } else {
+            offset = [size[0] * center[0] / 2, size[1] * center[1] / 2, size[2] * center[2] / 2];
+            translate(offset) cube(size, true);
+        }
+    }
+}
+
+
+// render full ball with element numbers (for each shape) + mark first vertex (others are clockwise)
 *union() { 
   for(i = [0:len(align_h)-1])
     align(align_h[i],true) {
@@ -139,20 +223,33 @@ function align_vec(v, q, rev=false) = vec4_mult_mat34(point3_from_vec3(v), quat_
       mark = align_vec(ddp1, align_star);
       translate(VNORM([mark[0]*.8, mark[1]*.8, mark[2]])*radius*1.05) cube(1, center=true);
     }
-  drawbucky();
+  intersection() {
+      drawball(half=1);
+      //      translate([-1,0,0])cube(120);
+  }
+  
+}
+
+*union() {
+  translate([0,50,0]) drawhex(mag="right");
+  drawhex();
+  translate([0,-50,0]) drawhex(mag="left");
  }
 
-*translate([50,0,0])
-  hexp(mag="left");
-*hexp(mag="right");
+*union() {
 
-*starp();
-*translate([0,50,0])
-hexp();
+    drawstar();
+    
+    translate([0,55,0]) drawstar(locks=[0,1,1,1,1]); 
+ }
+
+
+stand();
+
 
 
 module stand() {
-  dia=60;
+  dia=56;
   height=10;
   function pp(i) = [sin(i*360/5), cos(i*360/5)]*dia/2;
   difference() {
@@ -160,233 +257,268 @@ module stand() {
     translate([0,5,0]) linear_extrude(height=eh, scale=(dia/2-eh*tan(20))/(dia/2))
       polygon(points = [for(i=[0:4], j=0) j ? penti(pp(i), pp(i+2)) : pp(i)]);
     translate([0,0,radius+6]) sphere(r=radius,$fn=100);
-    rotate([5,0,0]) slab(height, eh+1, dia+20);
+    rotate([5,0,0]) slab_z(height, eh+1, dia+20);
   }
 }
 
-stand();
-
-//prism10(ddp1, ip1, ddp2, ip2, ddp3, ip3, ddp4, ip4, ddp5, ip5);
-  
-module star_cut(l=[1,1,1,1,1,1]) {
+// align stars adjacent to hex 0, enable adjacent locks
+module star_cut(locks = [1, 1, 1, 1, 1, 1]) {
+  l = locks;
   for(i = [0:2]) {
     a=[align_p[0], align_p[8],align_p[11]][i];  // stars adjacent to hex0
-    sl=[[0,0,l[2],l[3],0],
-	[l[0],l[1],0,0,0],
-	[l[5],0,0,0,l[4]]][i];
-    align(a,true)  // move to correct position
-      align(align_star) drawstar(true, sl);  // star aligned to Z
+    sl=[[0,    0,    l[2], l[3], 0    ],
+	[l[0], l[1], 0,    0,    0    ],
+	[l[5], 0,    0,    0,    l[4]]][i];
+    align(a, reverse=true)  // move to correct position
+      starp(cut=true, locks=sl);  // star aligned to Z
   }
 }
 
-hex_h = 10;
-
-module slab(zmin, zmax, size=200) {
-  translate([-size/2,-size/2,zmin])
-    cube([size,size,zmax-zmin], center=false);
-}
-
-magnet_dia=5+.5;
-magnet_h = 2.1;
-
-module line(l) {
-  translate(l[0]) rotate(LineRotations(l[1]-l[0])) cylinder(r=.1,h=norm(l[1]-l[0]));
-}
-
+// hexa piece, magnet can be none/left/right
 module hexp(mag = "none") {
-  // projet to plane Z=radius
-  function zproj(vl) = [for(vo=vl) let (v = align_vec(vo, align_hex1)) [v[0]/v[2], v[1]/v[2], 1]*(radius+1)];
-  ohp = zproj(oh);
-  ddhp = zproj(ddh);
+    // align to Z and project to plane Z=radius+1
+    function zproj(vl) = [for(vo=vl) let (v = align_vec(vo, align_hex1)) v / v.z * (radius + 1)];
+    ohp = zproj(oh);
+    ddhp = zproj(ddh);
 
-  cutline = (mag == "left") ? [ddhp[5], ddhp[0]] : [ddhp[0], ddhp[1]];
+    // line between hexagons, used to cut/extend edges (unused without mag)
+    cutline = (mag == "left") ? [ddhp[5], ddhp[0]] : [ddhp[0], ddhp[1]];
 
-  oh1pn = (mag == "none") ? ohp[0] : line_intersection_pp(ohp[1], ohp[0], cutline[0], cutline[1]); // extend oh1 side
-  oh6pn = (mag == "none") ? ohp[5] : line_intersection_pp(ohp[4], ohp[5], cutline[0], cutline[1]); // cut oh6 side
+    // extend odd hexagon sides (0,2,4)
+    function hex_extend(vl) = [for(i=[0:len(vl)-1]) let(l=len(vl), ip=(i % 2) ? modp(i + 1, l) : modp(i - 1, l)) interp(vl[ip], vl[i], 1.25)];
+    ohp_1 = hex_extend(ohp);
   
-  // translate(oh1pn) color("blue") cube(.2,center=true);
-  // translate(oh6pn) color("red") cube(.2,center=true);
+    oh1pn = (mag == "none") ? ohp_1[0] : line_intersection_pp(ohp_1[1], ohp_1[0], cutline[0], cutline[1]); // oh1 side
+    oh6pn = (mag == "none") ? ohp_1[5] : line_intersection_pp(ohp_1[4], ohp_1[5], cutline[0], cutline[1]); // oh6 side
   
-  ohpn = concat([oh1pn], slice(ohp, [1:4]), [oh6pn]);
-  //for(i=[0:len(ohpn)-1]) translate(ohpn[i]) linear_extrude(height=.1) text(text=str(i),size=1, valign="center", halign="center");
-  difference() {
-    union() {
-      intersection() {
-	sphere(r=radius, $fn=100);
-	slab(radius-hex_h, radius+1);
+    ohpn = concat([oh1pn], slice(ohp_1, [1:4]), [oh6pn]);
+    // for(i=[0:len(ohpn)-1]) translate(ohpn[i]) linear_extrude(height=.1) text(text=str(i),size=1, valign="center", halign="center");
+
+    difference() {
+	// basic shape
 	union() {
-	  prism_v(ddhp);
-	  prism_v(ohpn);
-	}
-      }
-    }
-    locks = (mag=="none") ? [1,1,1,1,1,1] : (mag=="left") ? [0,0,1,1,1,2] : [3,1,1,1,0,0];
-    align(align_hex1) star_cut(locks);
-    if(mag!="none") {
-      side = cutline[0]-cutline[1];
-      
-      v = VNORM(align_vec(ddh1, align_hex1));             // point to place magnet
-      aangle = asin(v[0]*VNORM(side)[1]);                 // rotation tperpendicular point on side
-      echo(v, aangle, side);
-      translate(VNORM([-side[1],side[0],0]) * extrusion_width * -1)          // inset, perpendicular to side
-	translate(v*(radius-magnet_dia/2-2))	                   // 2mm from surface
-	  rotate(aangle, v = [side[0],side[1],0])             // align to edge
-	    rotate([0,0,atan2(side[1], side[0])-90]) {
-	      rotate([0,90,0]) rotate([0,0,360/16]) cylinder(d=magnet_dia/cos(180/8), h=magnet_h+.2, $fn=8);
-	      translate([0, -magnet_dia/2, -10]) cube([magnet_h, magnet_dia, 10]);
+	    intersection() {
+		sphere(r=radius, $fn=100);
+		slab_z(radius-hex_h, radius+1);
+		pyramid(ohpn);
 	    }
-    }
-  }
-}
-
-star_h = 8;
-
-
-//function sproj(v) = let(p=VNORM(align_vec(v, align_star))*radius,
-//			h0=sqrt(radius*radius-VLENSQR([p[0], p[1], 0])))
-//  p * (radius-star_h)/h0;
-
-module starp(cut=false, locks=[1,1,1,1,1]) {
-  // align and project to plane above ball ; move the plane eta down to make prism for cut slightly larger
-  function zproj(vl) = [for(vo=vl) let (v = align_vec(vo, align_star)) [v[0]/v[2], v[1]/v[2], 1-(cut?eta:0)]*(radius+1)];
-  // align and project to star_h plane
-  function sproj(vec) = let (v = align_vec(vec, align_star)) [v[0]/v[2], v[1]/v[2], 1] * (radius-star_h);
-  
-  difference() {
-    intersection() {
-      sphere(r=radius+(cut?1:0), $fn=100);
-      slab(radius-star_h, radius+1);
-      prism_v(zproj([ddp1, ip1, ddp2, ip2, ddp3, ip3, ddp4, ip4, ddp5, ip5]));
-    }
-    if(use_lock) {
-      p1 = sproj(ddp1);                                  // start tip
-      v2 = VNORM(sproj(ip1) - p1);                       // unit vectors along star edges
-      v3 = VNORM(sproj(ip5) - p1);
-      v0 =  VNORM(v2+v3);                                // center of tip direction (pointing to star center)
-      sin_a = norm(v2-v3)/2;                             // sin(tip_angle/2)
-      alpha = asin(sin_a); 
-      cos_a = cos(alpha);                                // cos(tip_angle/2)
-      tan_a = tan(alpha);
-      ofs = 2*extrusion_width;                           // star wall thickness
-      lock_size = 8;                                     // size of lock triangle (centerline length)
-      lock_height=layer_h*4-(cut?.3:0);                  // height of lock
-      lock_cut_star = 1.5;                               // tip cut for star
-      lock_cut_hex  = 2;                                 // tip cut for hexagon
-      p1n = p1 + v0 * ofs / sin_a;                       // shift star tip to get ofs spacing
-      p1n_hex = p1n + v0 * lock_cut_hex;                 // cut from tip on hex (cut plane intersection)
-      p1n2 = p1n + v2 * lock_cut_star / cos_a;           // replace tip with line
-      p1n3 = p1n + v3 * lock_cut_star / cos_a;
-      p2n = p1n + v2*lock_size / cos_a;  
-      p3n = p1n + v3*lock_size / cos_a;
-
-      q1n2 = p1 + v2 * (ofs / tan_a + extrusion_width/tan_a/2);
-      q1n3 = p1 + v3 * (ofs / tan_a + extrusion_width/tan_a/2);
-      q2n = sproj(ip1);
-      q3n = sproj(ip5);
-
-      ofs_x = -ofs*sin_a;
-      ofs_y = -ofs*cos_a;
+	}
+	// cut edges, with correct locks
+	locks = (mag=="none") ? [1,1,1,1,1,1] : (mag=="left") ? [0,0,1,1,1,2] : [3,1,1,1,0,0];
+	align(align_hex1)
+	    star_cut(locks);
+	// hole for magnet
+	if(mag != "none") {
+	    side = cutline[0]-cutline[1];
       
-      poly_base = [q1n2,q2n,q3n,q1n3];
-      poly_d = [for(p=poly_base) [p[0]+ofs_x, p[1]+ofs_y*sign(p[1]), p[2]]];
-      poly_top_scale = (radius-star_h+lock_height)/(radius-star_h);
-      // hardcoded direction along X axis!
-      poly_u = [for(p=poly_base) [p[0]*poly_top_scale+ofs_x, p[1]*poly_top_scale+ofs_y*sign(p[1]), p[2]*poly_top_scale] ];
-      poly_t1 =  [for(p=poly_u) [p[0], p[1] - extrusion_width/2 * sign(p[1]), p[2]-eta]];
-      poly_t2 =  [for(p=poly_u) [p[0], p[1] - extrusion_width/2 * sign(p[1]), p[2]+layer_h]];
-      // norm vector of hex to the right and left
-      h4n = align_vec(align_vec([0,0,1], align_h[4], true), align_star);
-      h6n = align_vec(align_vec([0,0,1], align_h[6], true), align_star);
-      for (i=[0:4]) {
-	a = i*360/5;
-	if(locks[i]) {
-	  rotate([0,0,a]) {
-	    difference() {
-	      translate([0,0,-eta])
-		intersection() {
-		  union() {
-		    // angled lock walls
-		    polyhedron(points = concat(poly_d,poly_u),
-			       faces = [[0,1,2,3], [0,4,5,1], [1,5,6,2], [2,6,7,3], [3,7,4,0], [4,7,6,5]]);
-		    if(!cut)  // bridge needs something to catch on
-		      polyhedron(points = concat(poly_t1,poly_t2),
-				 faces = [[0,1,2,3], [0,4,5,1], [1,5,6,2], [2,6,7,3], [3,7,4,0], [4,7,6,5]]);
-		    // straight walls
-		    if(0) {
-		      translate([0,0,radius-star_h])
-			linear_extrude(lock_height) polygon(points=poly_d);
-		    }
-		  }
-		  if(!cut)
-		    translate([p1n[0]-lock_cut_star-lock_size/2,0, p1n[2]])
-		      cube([lock_size, 20, 20], center=true);
+	    v = VNORM(ddhp[0]);                            // point to place magnet
+	    translate(VNORM([-side[1],side[0],0]) * mag_cover_thickness * -1)      // inset, perpendicular to side in XY, single perimeter
+		translate(v*(radius-magnet_dia/2-2)) {	                           // 2mm from sphere surface
+		    aangle = asin(v.x*VNORM(side).y);                            // angle of edge in place of magnet
+		    rotate(aangle, v = [side.x,side.y,0])                        // align to edge
+			rotate([0,0,atan2(side.y, side.x)-90]) {                   // align to side in XY
+			    // octagon for magnet, with some reserve in height
+			    rotate([0,90,0]) rotate([0,0,360/16]) cylinder(d=magnet_dia/cos(180/8), h=magnet_h+.2, $fn=8);
+			    // access hole
+			    cube_c([magnet_h, magnet_dia, 10], center = [1, 0, -1]);
+			}
 		}
-	      if(cut) {
-		if(locks[i] == 1 || locks[i] == 2) translate(p1n_hex) multmatrix(quat_to_mat4(quat_v2([0,0,1],h4n))) slab(0,5,10);
-		if(locks[i] == 1 || locks[i] == 3) translate(p1n_hex) multmatrix(quat_to_mat4(quat_v2([0,0,1],h6n))) slab(0,5,10);
-	      }
-	    }
-	  }
 	}
-      }
     }
-  }
 }
 
-module drawhex() {
-  render()
-    align(align_hex1, true) hexp(); 
+// star piece
+module starp(cut=false, locks=[1,1,1,1,1]) {
+    // align and project to plane above ball ; move the plane eta down in Z to make pyramid for cut slightly larger
+    function zproj(vl) = [for(vo=vl) let (v = align_vec(vo, align_star)) (v * ((radius + 1) / v.z)) - [0,0,cut ? eta:0]];
+    // align and project to star_h plane / cut clearance lower
+    star_z_ref = radius - star_h;
+    star_z = star_z_ref - (cut ? lock_clearance : 0);
+    function sproj(vec) = let (v = align_vec(vec, align_star)) v * (star_z / v.z);
+
+    // offset point list by v toward x
+    function ofs_poly_x(pl, both, left, right) = let(l = left != undef ? left : negy(both),
+                                                     r = right != undef ? right : both)
+	[for (p=pl) p.y < 0 ? [p.x+l.x, p.y+l.y, p.z+l.z] : [p.x+r.x, p.y+r.y, p.z+r.z]];
+
+    // move point by ofs perpendicular to origin (pentagon tip)
+    function pentexpand_p(p, ofs) = let(v1 = VNORM([p.x, p.y]), o = [v1.y, -v1.x, 0] * ofs) p + o;
+    // move pentagon point away from origin
+    function pentexpand_m(p, ofs) = let(o = VNORM([p.x, p.y, 0]) * ofs) p + o;
+    function pentexpand(p, ofs) =
+	[for(i=[0:4], d=[-1,0,1])
+	    let(o = (locks[i] && locks[modp(i+1,5)]) ? ofs : eta)   // no inset around lock
+		d ? pentexpand_p(p[d<0 ? i*2 : modp(i*2+2, 10)], o*d/cos(18)) :
+		    pentexpand_m(p[i*2+1], o/sin(108/2))]; // left, mid, right
+    difference() {
+	intersection() {
+	    if(!cut) sphere(r=radius+(cut?1:0), $fn=100);
+	    slab_z(star_z, radius+2);
+	    pent = zproj([ddp1, ip1, ddp2, ip2, ddp3, ip3, ddp4, ip4, ddp5, ip5]);
+	    union() {
+		pyramid(pent);
+		if(star_inset_lock > 0) {
+		    p_u = pentexpand(pent, star_inset_lock);
+		    p_d = pentexpand(pent*.5, star_inset_lock);  // somewhere under star base
+		    intersection() {
+			prism(base = p_d, top = p_u);
+			sphere(r=radius-star_inset_radius, $fn=100);
+		    }
+		}
+	    }
+	}
+	if(use_lock) {
+	    for (i=[0:4]) if (locks[i]) {
+		// lock symmetrical around X axis
+		p1 = sproj(ddp1);                                  // star tip
+		v2 = VNORM(sproj(ip1) - p1);                       // unit vector along star edge
+		v0 = [-1,0,0];                                     // center of tip direction (pointing to star center)
+		sin_a = v2.y;                                      // sin(tip_angle/2)
+		alpha = asin(sin_a);                               // tip halfangle
+		cos_a = cos(alpha);                                // cos(tip_angle/2)
+		tan_a = tan(alpha);
+	    
+		inset_r = locks[modp(i+1,5)] && locks[i];
+		inset_l = locks[modp(i-1,5)] && locks[i];
+		ofs_r = star_wall - (inset_r ? star_inset_lock : 0);                 // star wall thickness (inset is added from outside)
+		ofs_l = star_wall - (inset_l ? star_inset_lock : 0);                 // star wall thickness (inset is added from outside)
+		maxofs = max(ofs_l, ofs_r);
+		lock_max_a = lock_max - (cut ? .4 : 0);     // lock base distance from star tip
+		lock_min_a = lock_min + (cut ? .4 : 0);      // lock tip distance from star tip
+		lock_height = cut ? ceil_to_layer(1.4) : ceil_to_layer(2); // height of lock (smaller when cutting hex)
+		if(lock_min_a < min(ofs_l,ofs_r) / sin_a) {
+		    echo("lock_min_a is too small", lock_min = lock_min_a, min =  min(ofs_l,ofs_r) / sin_a);
+		}
+		    
+
+		q1n2 = p1 + v2 * (maxofs + extrusion_width + eta) / tan_a;  // replace tip with line (tip must not degenerate after aplying bridge ofs
+		q2n = sproj(ip1);                                  // point far enough on tip edge
+
+		ofsv_r = [0, -cos_a, 0] * ofs_r;
+		ofsv_l = [0,  cos_a, 0] * ofs_l;
+		
+		poly_base = [q1n2, q2n, negy(q2n), negy(q1n2)];                                  // polygon matching star base, with tip cut
+		// offset point list by ofs toward X axis
+		poly_d = ofs_poly_x(poly_base*(1-eta/star_z), left = ofsv_l, right = ofsv_r);    // bottom of prism, shift down slightly
+		poly_top_scale = (star_z_ref + lock_height) / star_z;                            // scale for top of prism
+		poly_u = ofs_poly_x(poly_base*poly_top_scale, left = ofsv_l, right = ofsv_r);    // scale top of prism then apply offset
+		poly_t1 = ofs_poly_x(poly_u, both = [0, -extrusion_width/2, 0]);                 // step to make bridging over lock easier
+		poly_t2 = ofs_poly_x(poly_u, both = [0, -extrusion_width, layer_h]);             // second step for PET
+	    
+		// norm vector of hex to the right and left
+		h4n = align_vec(align_vec([0,0,1], align_h[4], true), align_star);
+		h6n = align_vec(align_vec([0,0,1], align_h[6], true), align_star);
+
+		rotate([0,0,i*360/5]) {                  // star tip direction
+		    difference() {
+			intersection() {
+			    union() {
+				// angled lock walls
+				//echo(i=i, poly_d=poly_t1,poly_u=poly_t2);
+				prism(base = poly_d, top = poly_u);
+				if(!cut) {  // bridge needs something to catch on
+				    prism(base = poly_t1, height=layer_h);
+				    if(use_pet && layer_h < .4)
+					prism(base = poly_t2, height=layer_h);
+				}
+			    }
+			    union() {
+				// cut star lock to correct size (perpendicular to star bed)
+				// trim hex lock if necessary (single-sided lock may interfere)
+				d = lock_max_a-lock_min_a;
+				translate(p1 + [-lock_max_a, 0, 0])
+				    slab_x(0, d/2, 10);
+				translate(p1 + [-lock_min_a, 0, 0]) rotate([0,-30,0])
+				    slab_x(-d/2, 0, 10);
+			    }
+			}
+			if(cut) {
+			    // cut parallel to hex bed
+			    if(locks[i] == 1 || locks[i] == 2)
+				translate(p1 + v0 * lock_min_a) multmatrix(quat_to_mat4(quat_v2([0,0,1],h4n))) { slab_z(0,5,20); }
+			    if(locks[i] == 1 || locks[i] == 3)
+				translate(p1 + v0 * lock_min_a) multmatrix(quat_to_mat4(quat_v2([0,0,1],h6n))) { slab_z(0,5,20); }
+			    // cut perpendicular hex bed (use XZ projection of one adjacent hex)
+			    translate(p1 + v0 * lock_max_a) rotate([0,atan2(h4n.x,h4n.z),0]) slab_x(-10,0,20);
+			}
+		    }
+		}
+	    }
+	}
+    }
 }
 
-module drawstar(cut=false, locks=[1,1,1,1,1]) {
-  render()
-    align(align_star, true) starp(cut, locks);
+module drawhex(mag="none") {
+  render(15)
+    hexp(mag); 
 }
 
-module
-drawbucky() {
-  for(a=align_p)
-    align(a,true)
-      color("green", .7) render() starp(); 
-  for(a=align_h)
-    align(a,true)
-      color("blue", .7) render() hexp();
+module drawstar(locks=[1,1,1,1,1]) {
+  render(15)
+    starp(cut=false, locks=locks);
 }
 
-module prism6(p1, p2, p3, p4, p5, p6) {
-  if (swhex == 1) {
-    polyhedron(points = [po, p1, p2, p3, p4, p5, p6],
-	       faces = [
-			[1,2,3,4, 5, 6],
-			[0, 2, 1], [0, 3, 2], [0, 4, 3],	
-			[0, 5, 4], [0, 6, 5], [0, 1, 6]]);
-  }
+module drawball(star, hex, half=0) {
+    starl = star == undef ? [0:len(align_p)-1] : star;
+    hexl = hex == undef ? [0:len(align_h)-1] : hex;
+    for(i = starl) {
+	if(half == 0 || !!hemi_p[i] == (half > 0)) {
+	    locks = tip_p[i] ? [0,1,1,1,1] : [1,1,1,1,1];
+	    align(align_p[i],true)
+		color("green", .7) render(15) starp(locks = locks);
+	}
+    }
+    for(i = hexl) {
+	if(half == 0 || !!hemi_h[i] == (half > 0)) {
+	    mag = ["none","left","right"][mag_h[i]];
+	    align(align_h[i],true)
+		color("blue", .9) render(10) hexp(mag);
+	}
+    }
 }
 
-module prism_v(p) {
+// pyramid with tip on origin, list od points forms base
+// base should be planar
+module pyramid(p) {
   sides = len(p);
   faces = concat([[for(i=[1:sides]) i]],
-		 [for(i=[1:sides]) [0, (i%sides)+1, i]]);
+		 [for(i=[1:sides]) [0, i % sides + 1, i]]);
   polyhedron(points = concat([po], p),
   	     faces = faces);
 }
 
-module prism5(p1, p2, p3, p4, p5) {
-  if (swpent == 1) {
-    polyhedron(points = [po, p1, p2, p3, p4, p5],
-        faces = [[1, 2, 3, 4, 5],
-            [0, 2, 1], [0, 3, 2], [0, 4, 3],
-            [0, 5, 4], [0, 1, 5]]);
-  }
+// prism starting at p[0].z
+module prism(base, height, top) {
+    if(top != undef) {
+	if(len(base) != len(top)) {
+	    echo("Base must match top", base = base, top = top);
+	    #cube();
+	} else {
+	    l = len(base);
+	    polyhedron(points = concat(base, top),
+		       faces = concat([listr([0:l-1])], // base
+				      [listr([2*l-1:-1:l])], // top
+				      [for(i=[0:l-1]) [modp(i+1,l), modp(i,l), modp(i,l)+l, modp(i+1,l)+l]])); // sides
+	}
+    } else {
+	ofs = len(height) == undef ? [0,0,height] : height;
+	prism(base = base, top = vvec_plus(base, ofs));
+    }
 }
 
-module prism10(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10)
-{
-  if (swpent == 1) {
-    polyhedron(points = [po, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10 ],
-	       faces = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-			[0, 2, 1], [0, 3, 2], [0, 4, 3], [0, 5, 4], [0, 6, 5], [0, 7, 6], [0, 8, 7], [0, 9, 8], [0, 10, 9],
-			[0, 1, 10]]);
-  }
+
+module slab_z(zmin, zmax, size=200) {
+  translate([-size/2,-size/2,zmin])
+    cube([size, size, zmax - zmin], center=false);
 }
 
+module slab_x(xmin, xmax, size=200) {
+  translate([xmin, -size/2,-size/2])
+    cube([xmax-xmin, size, size], center=false);
+}
+
+
+
+module line(l) {
+  translate(l[0]) rotate(LineRotations(l[1]-l[0])) cylinder(r=.1,h=norm(l[1]-l[0]));
+}
